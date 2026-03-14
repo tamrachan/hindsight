@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import { EVENTS, EVENTS_BY_ID, ALL_ASSETS } from "./constants";
 import { PERFORMANCE_DATA, EVENT_MONTH_INDEX } from "./data/performanceData";
 
-import Navbar                from "./components/Navbar";
+import Navbar from "./components/NavBar";
 import HeroSection           from "./components/HeroSection";
 import TimelineChart         from "./components/TimelineChart";
 import EventSelectorCards    from "./components/EventSelectorCards";

@@ -4,6 +4,8 @@
 
 ```env
 TWELVE_DATA_API_KEY=your_twelve_data_key
+GEMINI_API_KEY=your_gemini_api_key
+GEMINI_MODEL=gemini-1.5-flash
 PORT=5000
 ```
 
@@ -18,6 +20,9 @@ node server.js
 - `GET /api/events`
   - Returns hardcoded major events + asset proxy metadata.
   - Uses plan-compatible proxy candidates with fallback (`symbolUsed` in responses).
+- `GET /api/articles?eventId=covid&assetClass=Stocks&limit=10`
+  - Returns curated supporting articles you can show next to charts and analysis.
+  - Optional filters: `eventId`, `assetClass`, `limit`.
 - `GET /api/asset-classes/monthly`
   - Returns all asset proxy data from 1 year before the earliest event date.
   - Uses `1month` interval from Twelve Data.
@@ -39,14 +44,13 @@ node server.js
     - `% change` from `months` before to `months` after
 - `GET /api/event-metrics/:eventId?months=3`
   - Same metrics for a single event, from monthly normalized summary data.
+- `GET /api/event-analysis/:eventId?months=3`
+  - Uses Gemini to generate grounded explanation text from computed event metrics.
+  - Response includes both:
+    - `metrics` (the numeric evidence)
+    - `supportingArticles` (article metadata used as context)
+    - `analysis` (LLM-generated educational narrative)
 - `GET /api/impact/:eventId?windowDays=30`
   - Example: `/api/impact/covid?windowDays=45`
   - Fetches daily prices from Twelve Data in a symmetric window around the event.
   - Includes nearest `preEvent` and `postEvent` price points and computed `% return`.
-- `GET /api/lesson-cards/:eventId`
-  - Example: `/api/lesson-cards/covid?windowDays=180`
-  - Returns a teaching-ready lesson card:
-    - `teachingFocus` bullets
-    - per-asset event metrics (`d7`, `d30`, `d90`, drawdown, recovery)
-    - generated `keyTakeaways`
-    - generated `quizQuestions`

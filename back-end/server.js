@@ -61,6 +61,79 @@ const MAJOR_EVENTS = [
 
 const TWELVE_BASE_URL = "https://api.twelvedata.com/time_series"
 
+const SUPPORTING_ARTICLES = [
+  {
+    id: "dotcom-sp500-2000",
+    title: "What Happened in the Dot-Com Bubble?",
+    source: "Investopedia",
+    publishedAt: "2023-10-31",
+    url: "https://www.investopedia.com/terms/d/dotcom-bubble.asp",
+    eventIds: ["dotcom"],
+    assetClasses: ["Stocks"],
+    summary: "Explains equity valuation excesses and the subsequent tech-heavy selloff.",
+  },
+  {
+    id: "gfc-treasury-safe-haven",
+    title: "The Financial Crisis and Treasury Yields",
+    source: "Federal Reserve Bank of St. Louis",
+    publishedAt: "2009-01-01",
+    url: "https://www.stlouisfed.org",
+    eventIds: ["gfc"],
+    assetClasses: ["Bonds"],
+    summary: "Discusses flight-to-quality behavior and rate/yield dynamics during crisis stress.",
+  },
+  {
+    id: "covid-cross-asset-2020",
+    title: "Policy Responses to COVID-19 and Financial Markets",
+    source: "IMF",
+    publishedAt: "2020-06-01",
+    url: "https://www.imf.org",
+    eventIds: ["covid"],
+    assetClasses: ["Stocks", "Bonds", "Commodities", "Real Estate", "Crypto"],
+    summary: "Summarizes cross-asset dislocations and the impact of policy support.",
+  },
+  {
+    id: "911-market-impact",
+    title: "The Market Impact of 9/11",
+    source: "Federal Reserve History",
+    publishedAt: "2013-01-01",
+    url: "https://www.federalreservehistory.org",
+    eventIds: ["911"],
+    assetClasses: ["Stocks", "Bonds"],
+    summary: "Describes near-term market shutdowns and risk-off repricing.",
+  },
+  {
+    id: "commodity-shocks-overview",
+    title: "Commodity Price Shocks and Macroeconomic Stability",
+    source: "BIS",
+    publishedAt: "2022-05-01",
+    url: "https://www.bis.org",
+    eventIds: ["gfc", "covid"],
+    assetClasses: ["Commodities"],
+    summary: "Provides context for commodity volatility in global shock episodes.",
+  },
+  {
+    id: "reit-crisis-behavior",
+    title: "REIT Performance in Market Downturns",
+    source: "Nareit",
+    publishedAt: "2021-03-15",
+    url: "https://www.reit.com",
+    eventIds: ["gfc", "covid"],
+    assetClasses: ["Real Estate"],
+    summary: "Reviews REIT drawdown and recovery patterns in stress regimes.",
+  },
+  {
+    id: "bitcoin-crisis-correlation",
+    title: "Bitcoin’s Evolving Role in Multi-Asset Portfolios",
+    source: "Coin Metrics",
+    publishedAt: "2023-08-01",
+    url: "https://coinmetrics.io",
+    eventIds: ["covid"],
+    assetClasses: ["Crypto"],
+    summary: "Examines bitcoin behavior versus traditional risk assets across cycles.",
+  },
+]
+
 function toIsoDate(dateObj) {
   return dateObj.toISOString().slice(0, 10)
 }
@@ -118,10 +191,16 @@ function normalizeToBase100(series) {
   return { baseClose, points }
 }
 
-function dateDiffDays(fromIsoDate, toIsoDate) {
-  const from = new Date(`${fromIsoDate}T00:00:00Z`).getTime()
-  const to = new Date(`${toIsoDate}T00:00:00Z`).getTime()
-  return Math.round((to - from) / (1000 * 60 * 60 * 24))
+function getSupportingArticles({ eventId = null, assetClass = null, limit = 20 } = {}) {
+  const normalizedAsset = assetClass ? String(assetClass).trim().toLowerCase() : null
+  const filtered = SUPPORTING_ARTICLES.filter((article) => {
+    const eventMatch = eventId ? article.eventIds.includes(eventId) : true
+    const assetMatch = normalizedAsset
+      ? article.assetClasses.some((cls) => cls.toLowerCase() === normalizedAsset)
+      : true
+    return eventMatch && assetMatch
+  })
+  return filtered.slice(0, Math.max(1, Math.min(100, limit)))
 }
 
 function roundOrNull(value, decimals = 2) {
@@ -129,91 +208,92 @@ function roundOrNull(value, decimals = 2) {
   return Number(value.toFixed(decimals))
 }
 
-function getReturnAtDays(series, eventDate, days, baselineClose) {
-  const targetDate = addDays(eventDate, days)
-  const point = getNearestPoint(series, targetDate, "after")
-  return {
-    targetDate,
-    pointDate: point?.datetime || null,
-    returnPct: roundOrNull(pctChange(baselineClose, point?.close)),
-  }
-}
-
-function calculatePostEventDrawdown(series, eventDate) {
-  const post = series.filter((row) => row.datetime >= eventDate)
-  if (!post.length) return null
-  const peak = post[0].close
-  let trough = post[0]
-
-  for (const point of post) {
-    if (point.close < trough.close) trough = point
-  }
-
-  return {
-    troughDate: trough.datetime,
-    maxDrawdownPct: roundOrNull(pctChange(peak, trough.close)),
-  }
-}
-
-function calculateRecoveryDays(series, eventDate, baselineClose) {
-  const post = series.filter((row) => row.datetime >= eventDate)
-  const recovered = post.find((row) => row.close >= baselineClose)
-  if (!recovered) return null
-  return dateDiffDays(eventDate, recovered.datetime)
-}
-
-function buildLessonTakeaways(event, metrics) {
-  const valid30 = metrics
-    .filter((m) => m.returns.d30.returnPct !== null)
-    .sort((a, b) => b.returns.d30.returnPct - a.returns.d30.returnPct)
-
-  if (!valid30.length) {
-    return [`No complete 30-day data was available for ${event.title}.`]
-  }
-
-  const best = valid30[0]
-  const worst = valid30[valid30.length - 1]
-  const safeHaven = metrics.find((m) => m.assetClass === "Bonds")
-
-  const takeaways = [
-    `${best.assetClass} led after 30 days (${best.returns.d30.returnPct}%).`,
-    `${worst.assetClass} lagged after 30 days (${worst.returns.d30.returnPct}%).`,
-  ]
-
-  if (safeHaven?.returns?.d30?.returnPct !== null) {
-    takeaways.push(
-      `Bonds moved ${safeHaven.returns.d30.returnPct}% over 30 days, useful for safe-haven discussion.`,
-    )
-  }
-
-  return takeaways
-}
-
-function buildLessonQuiz(event, metrics) {
-  const valid30 = metrics
-    .filter((m) => m.returns.d30.returnPct !== null)
-    .sort((a, b) => b.returns.d30.returnPct - a.returns.d30.returnPct)
-
-  const winner = valid30[0]?.assetClass || "N/A"
-  const loser = valid30[valid30.length - 1]?.assetClass || "N/A"
-  const optionPool = [...new Set(metrics.map((m) => m.assetClass))]
-
+function buildAnalysisPrompt(metricsPayload) {
+  const articles = getSupportingArticles({ eventId: metricsPayload?.event?.id, limit: 12 })
   return [
-    {
-      id: `${event.id}-q1`,
-      question: `Which asset class performed best 30 days after ${event.title}?`,
-      options: optionPool,
-      correctAnswer: winner,
-      explanation: `${winner} had the highest 30-day return in this dataset.`,
+    "You are a financial education assistant for students.",
+    "Use only the provided data. Do not invent facts, dates, or percentages.",
+    "Use the supporting articles as context and cite article IDs where relevant.",
+    "Write concise, plain-English explanations.",
+    "Return strict JSON with this schema:",
+    "{",
+    '  "eventSummary": "string",',
+    '  "crossAssetNarrative": "string",',
+    '  "assetExplanations": [',
+    "    {",
+    '      "assetClass": "string",',
+    '      "whyItMoved": "string",',
+    '      "evidence": "string",',
+    '      "confidence": "low|medium|high",',
+    '      "citations": ["article_id"]',
+    "    }",
+    "  ],",
+    '  "teachingNotes": ["string"],',
+    '  "globalCitations": ["article_id"]',
+    "}",
+    "Data:",
+    JSON.stringify(metricsPayload),
+    "Supporting articles:",
+    JSON.stringify(articles),
+  ].join("\n")
+}
+
+async function generateLLMAnalysis(metricsPayload) {
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey) {
+    throw new Error("Missing GEMINI_API_KEY in environment")
+  }
+
+  const model = process.env.GEMINI_MODEL || "gemini-1.5-flash"
+  const url = new URL(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+  )
+  url.searchParams.set("key", apiKey)
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
     },
-    {
-      id: `${event.id}-q2`,
-      question: `Which asset class performed worst 30 days after ${event.title}?`,
-      options: optionPool,
-      correctAnswer: loser,
-      explanation: `${loser} had the lowest 30-day return in this dataset.`,
-    },
-  ]
+    body: JSON.stringify({
+      generationConfig: {
+        temperature: 0.2,
+      },
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: buildAnalysisPrompt(metricsPayload) }],
+        },
+      ],
+    }),
+  })
+
+  if (!response.ok) {
+    const errorBody = await response.text()
+    throw new Error(`Gemini request failed (${response.status}): ${errorBody}`)
+  }
+
+  const json = await response.json()
+  const text =
+    json?.candidates?.[0]?.content?.parts
+      ?.map((part) => part?.text)
+      .filter(Boolean)
+      .join("\n")
+      .trim() || ""
+  if (!text) {
+    throw new Error("Gemini returned an empty analysis response")
+  }
+
+  try {
+    return JSON.parse(text)
+  } catch {
+    return {
+      eventSummary: text,
+      crossAssetNarrative: "",
+      assetExplanations: [],
+      teachingNotes: ["Model response was not valid JSON; returned as raw text in eventSummary."],
+    }
+  }
 }
 
 function getLastIndexOnOrBefore(timestamps, targetDate) {
@@ -458,8 +538,9 @@ app.get("/", (req, res) => {
           <li><a href="/api/asset-classes/monthly">/api/asset-classes/monthly</a></li>
           <li><a href="/api/asset-classes/monthly/summary">/api/asset-classes/monthly/summary</a></li>
           <li><a href="/api/charts/normalized-index">/api/charts/normalized-index</a></li>
+          <li><a href="/api/articles?eventId=covid">/api/articles?eventId=covid</a></li>
           <li><a href="/api/event-metrics?months=3">/api/event-metrics?months=3</a></li>
-          <li><a href="/api/lesson-cards/covid">/api/lesson-cards/covid</a></li>
+          <li><a href="/api/event-analysis/covid?months=3">/api/event-analysis/covid?months=3</a></li>
           <li><a href="/api/impact/covid?windowDays=30">/api/impact/covid?windowDays=30</a></li>
           <li><a href="/api/hello">/api/hello</a></li>
         </ul>
@@ -472,6 +553,18 @@ app.get("/api/events", (req, res) => {
   res.json({
     events: MAJOR_EVENTS,
     assetProxies: ASSET_PROXIES,
+  })
+})
+
+app.get("/api/articles", (req, res) => {
+  const eventId = req.query.eventId ? String(req.query.eventId) : null
+  const assetClass = req.query.assetClass ? String(req.query.assetClass) : null
+  const limit = Number.parseInt(req.query.limit, 10) || 20
+  const articles = getSupportingArticles({ eventId, assetClass, limit })
+
+  return res.json({
+    count: articles.length,
+    articles,
   })
 })
 
@@ -579,83 +672,25 @@ app.get("/api/event-metrics/:eventId", async (req, res) => {
   }
 })
 
-app.get("/api/lesson-cards/:eventId", async (req, res) => {
+app.get("/api/event-analysis/:eventId", async (req, res) => {
   try {
     const event = MAJOR_EVENTS.find((item) => item.id === req.params.eventId)
     if (!event) {
       return res.status(404).json({ error: "Event not found" })
     }
 
-    const windowDays = Math.max(
-      30,
-      Math.min(365, Number.parseInt(req.query.windowDays, 10) || 180),
-    )
-    const startDate = addDays(event.date, -30)
-    const endDate = addDays(event.date, windowDays)
-
-    const assetMetrics = await Promise.all(
-      ASSET_PROXIES.map(async (asset) => {
-        try {
-          const { symbolUsed, series } = await fetchSeriesForAsset(asset, startDate, endDate)
-          const preEvent = getNearestPoint(series, event.date, "before")
-          if (!preEvent) {
-            return {
-              assetClass: asset.assetClass,
-              symbol: asset.symbol,
-              symbolUsed,
-              error: "No baseline data before event date",
-            }
-          }
-
-          const d7 = getReturnAtDays(series, event.date, 7, preEvent.close)
-          const d30 = getReturnAtDays(series, event.date, 30, preEvent.close)
-          const d90 = getReturnAtDays(series, event.date, 90, preEvent.close)
-          const drawdown = calculatePostEventDrawdown(series, event.date)
-          const recoveryDays = calculateRecoveryDays(series, event.date, preEvent.close)
-
-          return {
-            assetClass: asset.assetClass,
-            symbol: asset.symbol,
-            symbolUsed,
-            baseline: {
-              date: preEvent.datetime,
-              close: preEvent.close,
-            },
-            returns: { d7, d30, d90 },
-            maxDrawdownPct: drawdown?.maxDrawdownPct ?? null,
-            troughDate: drawdown?.troughDate ?? null,
-            recoveryDays,
-          }
-        } catch (error) {
-          return {
-            assetClass: asset.assetClass,
-            symbol: asset.symbol,
-            error: error.message,
-          }
-        }
-      }),
-    )
-
-    const validMetrics = assetMetrics.filter((metric) => !metric.error)
-    const lessonCard = {
-      id: `lesson-${event.id}`,
-      title: `${event.title}: Cross-Asset Impact`,
-      event,
-      teachingFocus: [
-        "Compare immediate vs medium-term market reactions",
-        "Identify relative winners and losers by asset class",
-        "Discuss drawdowns and recovery behavior",
-      ],
-      keyTakeaways: buildLessonTakeaways(event, validMetrics),
-      quizQuestions: buildLessonQuiz(event, validMetrics),
-      metrics: assetMetrics,
-    }
+    const months = Number.parseInt(req.query.months, 10) || 3
+    const summary = await buildMonthlySummaryPayload()
+    const metricsPayload = buildEventMetricsForEvent(event, summary, months)
+    const supportingArticles = getSupportingArticles({ eventId: event.id, limit: 12 })
+    const analysis = await generateLLMAnalysis(metricsPayload)
 
     return res.json({
-      windowDays,
-      startDate,
-      endDate,
-      lessonCard,
+      source: "gemini",
+      model: process.env.GEMINI_MODEL || "gemini-1.5-flash",
+      metrics: metricsPayload,
+      supportingArticles,
+      analysis,
     })
   } catch (error) {
     return res.status(500).json({ error: error.message })

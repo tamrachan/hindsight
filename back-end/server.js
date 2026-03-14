@@ -54,8 +54,20 @@ const MAJOR_EVENTS = [
   {
     id: "covid",
     title: "COVID market crash",
-    date: "2020-03-16",
+    date: "2019-12-31",
     category: "pandemic",
+  },
+  {
+    id: "russia-ukraine-war",
+    title: "Russia-Ukraine war escalation",
+    date: "2022-02-24",
+    category: "geopolitical shock",
+  },
+  {
+    id: "paris-agreement",
+    title: "Paris Agreement adopted",
+    date: "2015-12-12",
+    category: "policy agreement",
   },
 ]
 
@@ -752,7 +764,7 @@ app.get("/api/impact/:eventId", async (req, res) => {
   }
 })
 
-const PORT = Number.parseInt(process.env.PORT, 10) || 5000
+const PORT = Number.parseInt(process.env.PORT, 10) || 25355
 const HOST = process.env.HOST || "127.0.0.1"
 
 app.listen(PORT, HOST, (error) => {

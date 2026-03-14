@@ -1,5 +1,10 @@
 export default function SustainabilityCallout({ event }) {
-  if (event.category !== "sustainability") return null;
+  const show =
+    event.category === "sustainability" ||
+    event.category === "policy agreement" ||
+    event.id === "paris-agreement";
+
+  if (!show) return null;
   return (
     <div className="rounded-xl p-4 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800">
       <p className="text-sm text-green-700 dark:text-green-300 font-medium">

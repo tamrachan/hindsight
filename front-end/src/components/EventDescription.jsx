@@ -19,7 +19,11 @@ const CATEGORY_COLORS = {
 };
 
 export default function EventDescription({ event }) {
-  const { articles, loading, error } = useArticles(event.id);
+  const { articles, loading, error } = useArticles(event?.id);
+  const sustainabilityLike =
+    event.category === "sustainability" ||
+    event.category === "policy agreement" ||
+    event.id === "paris-agreement";
 
   return (
     <div className="space-y-4">
@@ -27,7 +31,7 @@ export default function EventDescription({ event }) {
       {/* ── Event header card ── */}
       <div className="rounded-xl p-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 flex items-start gap-3">
         <span className="text-2xl mt-0.5">
-          {event.category === "sustainability" ? "🌱" : "📌"}
+          {sustainabilityLike ? "🌱" : "📌"}
         </span>
         <div>
           <h3 className="font-bold text-base">

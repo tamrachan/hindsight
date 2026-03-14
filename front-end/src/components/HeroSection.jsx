@@ -42,13 +42,13 @@ export default function HeroSection({ onScrollToApp }) {
         }}
       />
 
-      <div className="relative z-10 max-w-4xl mx-auto text-center space-y-6">
+      <div className="relative z-10 max-w-4xl mx-auto text-center space-y-6 pt-6">
 
-        <h2 className="text-5xl sm:text-6xl lg:text-7xl font-black leading-[1.05] tracking-tight text-gray-900 dark:text-white">
-          In Hindsight,
+        <h2 className="text-4xl sm:text-6xl lg:text-7xl font-black leading-[1.05] tracking-tight text-gray-900 dark:text-white">
+          In hindsight,
           <br />
-          <span className="text-5xl sm:text-6xl">
-            We Should've Seen That Coming.
+          <span className="text-4xl sm:text-6xl">
+            we should've seen that coming.
           </span>
         </h2>
         

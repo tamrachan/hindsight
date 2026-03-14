@@ -4,7 +4,6 @@ export const ASSET_COLORS = {
   Commodities: "#f59e0b",
   Crypto: "#8b5cf6",
   "Real Estate": "#ec4899",
-  ESG: "#22c55e",
 };
 
 export const ASSET_PROXIES = [

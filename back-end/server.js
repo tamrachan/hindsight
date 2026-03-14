@@ -216,6 +216,87 @@ function buildLessonQuiz(event, metrics) {
   ]
 }
 
+function getLastIndexOnOrBefore(timestamps, targetDate) {
+  for (let i = timestamps.length - 1; i >= 0; i -= 1) {
+    if (timestamps[i] <= targetDate) return i
+  }
+  return -1
+}
+
+function getFirstIndexOnOrAfter(timestamps, targetDate) {
+  for (let i = 0; i < timestamps.length; i += 1) {
+    if (timestamps[i] >= targetDate) return i
+  }
+  return -1
+}
+
+function buildEventMetricsForEvent(event, summary, months = 3) {
+  const monthsClamped = Math.max(1, Math.min(24, months))
+  const windowDays = monthsClamped * 30
+  const startDate = addDays(event.date, -windowDays)
+  const endDate = addDays(event.date, windowDays)
+  const timestamps = summary.timestamps || []
+  const beforeTargetDate = addDays(event.date, -windowDays)
+  const afterTargetDate = addDays(event.date, windowDays)
+  const beforeIdx = getLastIndexOnOrBefore(timestamps, beforeTargetDate)
+  const eventIdx = getLastIndexOnOrBefore(timestamps, event.date)
+  const afterIdx = getFirstIndexOnOrAfter(timestamps, afterTargetDate)
+
+  const assets = summary.assets.map((asset) => {
+    const beforeValue = beforeIdx >= 0 ? asset.values[beforeIdx] : null
+    const eventValue = eventIdx >= 0 ? asset.values[eventIdx] : null
+    const afterValue = afterIdx >= 0 ? asset.values[afterIdx] : null
+    const hasMissingPoint = beforeValue === null || eventValue === null || afterValue === null
+
+    if (asset.error || hasMissingPoint) {
+      return {
+        assetClass: asset.assetClass,
+        symbol: asset.symbol,
+        symbolUsed: asset.symbolUsed || null,
+        error: asset.error || "Insufficient monthly normalized data for this event window",
+        metrics: null,
+      }
+    }
+
+    return {
+      assetClass: asset.assetClass,
+      symbol: asset.symbol,
+      symbolUsed: asset.symbolUsed || null,
+      beforePoint: {
+        datetime: timestamps[beforeIdx],
+        value: beforeValue,
+      },
+      eventPoint: {
+        datetime: timestamps[eventIdx],
+        value: eventValue,
+      },
+      afterPoint: {
+        datetime: timestamps[afterIdx],
+        value: afterValue,
+      },
+      metrics: {
+        months: monthsClamped,
+        beforeToEventPct: roundOrNull(pctChange(beforeValue, eventValue)),
+        eventToAfterPct: roundOrNull(pctChange(eventValue, afterValue)),
+        beforeToAfterPct: roundOrNull(pctChange(beforeValue, afterValue)),
+      },
+    }
+  })
+
+  return {
+    event,
+    source: "monthly-normalized-summary",
+    months: monthsClamped,
+    windowDays,
+    window: {
+      startDate,
+      eventDate: event.date,
+      endDate,
+    },
+    assets,
+  }
+}
+
 async function fetchAssetSeries(symbol, startDate, endDate, interval = "1day") {
   const apiKey = process.env.TWELVE_DATA_API_KEY
   if (!apiKey) {
@@ -377,6 +458,7 @@ app.get("/", (req, res) => {
           <li><a href="/api/asset-classes/monthly">/api/asset-classes/monthly</a></li>
           <li><a href="/api/asset-classes/monthly/summary">/api/asset-classes/monthly/summary</a></li>
           <li><a href="/api/charts/normalized-index">/api/charts/normalized-index</a></li>
+          <li><a href="/api/event-metrics?months=3">/api/event-metrics?months=3</a></li>
           <li><a href="/api/lesson-cards/covid">/api/lesson-cards/covid</a></li>
           <li><a href="/api/impact/covid?windowDays=30">/api/impact/covid?windowDays=30</a></li>
           <li><a href="/api/hello">/api/hello</a></li>
@@ -462,6 +544,36 @@ app.get("/api/charts/normalized-index", async (req, res) => {
       ...summary,
       eventMarkers,
     })
+  } catch (error) {
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+app.get("/api/event-metrics", async (req, res) => {
+  try {
+    const months = Number.parseInt(req.query.months, 10) || 3
+    const summary = await buildMonthlySummaryPayload()
+    const events = MAJOR_EVENTS.map((event) => buildEventMetricsForEvent(event, summary, months))
+    return res.json({
+      months: Math.max(1, Math.min(24, months)),
+      events,
+    })
+  } catch (error) {
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+app.get("/api/event-metrics/:eventId", async (req, res) => {
+  try {
+    const event = MAJOR_EVENTS.find((item) => item.id === req.params.eventId)
+    if (!event) {
+      return res.status(404).json({ error: "Event not found" })
+    }
+
+    const months = Number.parseInt(req.query.months, 10) || 3
+    const summary = await buildMonthlySummaryPayload()
+    const payload = buildEventMetricsForEvent(event, summary, months)
+    return res.json(payload)
   } catch (error) {
     return res.status(500).json({ error: error.message })
   }

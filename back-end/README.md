@@ -30,6 +30,15 @@ node server.js
   - Normalized index chart payload for frontend charting.
   - Includes `eventMarkers`, `yAxisBase=100`, and `logScaleSupported=true`.
   - Example: `/api/charts/normalized-index`
+- `GET /api/event-metrics?months=3`
+  - Returns metrics for every major event and every asset class.
+  - Calculated from monthly normalized summary data (no extra per-event provider calls).
+  - Includes:
+    - `% change` from `months` before event to event date
+    - `% change` from event date to `months` after
+    - `% change` from `months` before to `months` after
+- `GET /api/event-metrics/:eventId?months=3`
+  - Same metrics for a single event, from monthly normalized summary data.
 - `GET /api/impact/:eventId?windowDays=30`
   - Example: `/api/impact/covid?windowDays=45`
   - Fetches daily prices from Twelve Data in a symmetric window around the event.

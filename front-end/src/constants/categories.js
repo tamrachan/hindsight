@@ -5,6 +5,7 @@ export const CATEGORY_COLORS = {
   pandemic: "#3b82f6",
   "monetary policy": "#a855f7",
   sustainability: "#22c55e",
+  "policy agreement": "#22c55e",
 };
 
 export const CATEGORY_BADGE_CLASSES = {
@@ -14,4 +15,5 @@ export const CATEGORY_BADGE_CLASSES = {
   pandemic: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
   "monetary policy": "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300",
   sustainability: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
+  "policy agreement": "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
 };

@@ -6,7 +6,7 @@
 TWELVE_DATA_API_KEY=your_twelve_data_key
 GEMINI_API_KEY=your_gemini_api_key
 GEMINI_MODEL=gemini-1.5-flash
-PORT=5000
+PORT=25355
 ```
 
 2. Start server:

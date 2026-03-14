@@ -80,28 +80,26 @@ const EventMarker = ({ viewBox, event, dark }) => {
   const { x, y } = viewBox;
   const color = CATEGORY_COLORS[event.category] ?? "#888";
 
-  // Alternate labels above/below to avoid overlap for close events (e.g. ukraine + fed2022)
+  // Alternate labels above/below to avoid overlap for close events.
   const LABEL_OFFSETS = {
-    dotcom:  { dy: -38, anchor: "middle" },
-    "911":   { dy: -38, anchor: "middle" },
-    gfc:     { dy: -38, anchor: "middle" },
-    covid:   { dy: -38, anchor: "middle" },
-    ukraine: { dy: -38, anchor: "end"    },  // nudged left
-    fed2022: { dy: -56, anchor: "start"  },  // pushed higher
-    paris:   { dy: -38, anchor: "middle" },
+    dotcom:             { dy: -38, anchor: "middle" },
+    "911":              { dy: -38, anchor: "middle" },
+    gfc:                { dy: -38, anchor: "middle" },
+    covid:              { dy: -38, anchor: "middle" },
+    "russia-ukraine-war": { dy: -38, anchor: "middle" },
+    "paris-agreement":  { dy: -38, anchor: "middle" },
   };
 
   const offset = LABEL_OFFSETS[event.id] ?? { dy: -38, anchor: "middle" };
 
   // Shorten long titles for the label
   const SHORT_NAMES = {
-    dotcom:  "Dot-com",
-    "911":   "9/11",
-    gfc:     "GFC",
-    covid:   "COVID-19",
-    ukraine: "Ukraine",
-    fed2022: "Fed Hikes",
-    paris:   "Paris Agmt",
+    dotcom:               "Dot-com",
+    "911":                "9/11",
+    gfc:                  "GFC",
+    covid:                "COVID-19",
+    "russia-ukraine-war": "Ukraine War",
+    "paris-agreement":    "Paris Agmt",
   };
   const label = SHORT_NAMES[event.id] ?? event.title;
 
@@ -170,12 +168,12 @@ export default function TimelineChart({ dark, selectedEventId, onSelectEvent }) 
       setError(null);
       try {
         const [summaryRes, eventsRes] = await Promise.all([
-          fetch(`${API_ENDPOINTS.normalised}?commonStart=true`),
+          fetch(API_ENDPOINTS.normalised),
           fetch(API_ENDPOINTS.events),
         ]);
 
         if (!summaryRes.ok || !eventsRes.ok)
-          throw new Error("Backend request failed — is the server running on port 5000?");
+          throw new Error("Backend request failed — is the server running on port 25355?");
 
         const summaryJson = await summaryRes.json();
         const eventsJson  = await eventsRes.json();
@@ -232,7 +230,7 @@ export default function TimelineChart({ dark, selectedEventId, onSelectEvent }) 
             Historical Performance Timeline
           </h3>
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-            Indexed to 100 at common start · Hover for details · Click a marker to explore
+            Indexed to 100 · Hover for details · Click a marker to explore
           </p>
         </div>
         {loading && (

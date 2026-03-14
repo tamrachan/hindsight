@@ -19,7 +19,10 @@ const CATEGORY_COLORS = {
 };
 
 export default function EventDescription({ event }) {
-  const { articles, loading, error } = useArticles(event.id);
+  const sustainabilityLike =
+    event.category === "sustainability" ||
+    event.category === "policy agreement" ||
+    event.id === "paris-agreement";
 
   return (
     <div className="space-y-4">

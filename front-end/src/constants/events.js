@@ -32,7 +32,7 @@ export const EVENTS = [
       "Global lockdowns caused the fastest market crash in history, followed by a rapid ESG-led recovery.",
   },
   {
-    id: "ukraine",
+    id: "russia-ukraine-war",
     name: "Russia-Ukraine War",
     date: "2022-02-24",
     category: "geopolitical shock",
@@ -43,7 +43,7 @@ export const EVENTS = [
     id: "paris",
     name: "Paris Agreement",
     date: "2015-12-12",
-    category: "sustainability",
+    category: "policy agreement",
     description:
       "Global climate accord boosted ESG and clean energy funds. Fossil fuel stocks began long-term repricing.",
   },

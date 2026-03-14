@@ -1,6 +1,6 @@
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { EVENTS, EVENTS_BY_ID, ALL_ASSETS } from "./constants";
-import { PERFORMANCE_DATA, EVENT_MONTH_INDEX } from "./data/performanceData";
+import { API_ENDPOINTS } from "./constants/api";
 
 import Navbar from "./components/NavBar";
 import HeroSection           from "./components/HeroSection";
@@ -12,10 +12,33 @@ import ImpactChart           from "./components/ImpactChart";
 import StatCards             from "./components/StatCards";
 import SustainabilityCallout from "./components/SustainabilityCallout";
 
+function buildImpactChartData(metricsPayload) {
+  const assets = Array.isArray(metricsPayload?.assets) ? metricsPayload.assets : [];
+  const points = [
+    { month: "-3m" },
+    { month: "Event" },
+    { month: "+3m" },
+  ];
+
+  for (const asset of assets) {
+    const key = asset.assetClass;
+    points[0][key] = asset.beforePoint?.value ?? null;
+    points[1][key] = asset.eventPoint?.value ?? null;
+    points[2][key] = asset.afterPoint?.value ?? null;
+  }
+
+  return points;
+}
+
 export default function App() {
   const [dark, setDark]                   = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(EVENTS.find((e) => e.id === "covid"));
   const [activeAssets, setActiveAssets]   = useState(new Set(ALL_ASSETS));
+  const [impactData, setImpactData]       = useState([]);
+  const [impactMetrics, setImpactMetrics] = useState([]);
+  const [analysis, setAnalysis]           = useState(null);
+  const [impactLoading, setImpactLoading] = useState(false);
+  const [impactError, setImpactError]     = useState(null);
   const appRef = useRef(null);
 
   const scrollToApp = () => appRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -33,7 +56,46 @@ export default function App() {
     });
   };
 
-  const chartData = PERFORMANCE_DATA[selectedEvent.id] ?? [];
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function loadImpactData() {
+      setImpactLoading(true);
+      setImpactError(null);
+
+      try {
+        const [metricsRes, analysisRes] = await Promise.all([
+          fetch(API_ENDPOINTS.threeMonthMetrics(selectedEvent.id)),
+          fetch(API_ENDPOINTS.eventAnalysis(selectedEvent.id)),
+        ]);
+
+        if (!metricsRes.ok) {
+          throw new Error(`Failed to load event metrics (${metricsRes.status})`);
+        }
+
+        const metricsJson = await metricsRes.json();
+        const analysisJson = analysisRes.ok ? await analysisRes.json() : null;
+
+        if (isCancelled) return;
+        setImpactData(buildImpactChartData(metricsJson));
+        setImpactMetrics(Array.isArray(metricsJson.assets) ? metricsJson.assets : []);
+        setAnalysis(analysisJson?.analysis ?? null);
+      } catch (error) {
+        if (isCancelled) return;
+        setImpactData([]);
+        setImpactMetrics([]);
+        setAnalysis(null);
+        setImpactError(error.message);
+      } finally {
+        if (!isCancelled) setImpactLoading(false);
+      }
+    }
+
+    loadImpactData();
+    return () => {
+      isCancelled = true;
+    };
+  }, [selectedEvent.id]);
 
   return (
     <div className={dark ? "dark" : ""}>
@@ -76,18 +138,94 @@ export default function App() {
           <ImpactChart
             dark={dark}
             selectedEvent={selectedEvent}
-            chartData={chartData}
-            eventMonthIndex={EVENT_MONTH_INDEX}
+            chartData={impactData}
+            eventMonthIndex={1}
             activeAssets={activeAssets}
           />
 
-          <StatCards chartData={chartData} />
+          {impactLoading && (
+            <div className="text-sm text-gray-500 dark:text-gray-400">
+              Loading +/- 3 month impact data...
+            </div>
+          )}
+
+          {impactError && (
+            <div className="rounded-xl border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 p-3 text-sm text-red-700 dark:text-red-300">
+              {impactError}
+            </div>
+          )}
+
+          <StatCards chartData={impactData} />
+
+          {impactMetrics.length > 0 && (
+            <section className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 shadow-sm">
+              <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
+                3-Month Metrics
+              </h3>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-800">
+                      <th className="py-2 pr-4">Asset</th>
+                      <th className="py-2 pr-4">-3m to Event</th>
+                      <th className="py-2 pr-4">Event to +3m</th>
+                      <th className="py-2">-3m to +3m</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {impactMetrics.map((asset) => {
+                      const m = asset.metrics;
+                      const fmt = (v) =>
+                        v == null ? "N/A" : `${v >= 0 ? "+" : ""}${Number(v).toFixed(2)}%`;
+                      return (
+                        <tr
+                          key={asset.assetClass}
+                          className="border-b border-gray-100 dark:border-gray-800/70"
+                        >
+                          <td className="py-2 pr-4 font-medium">{asset.assetClass}</td>
+                          <td className="py-2 pr-4">{fmt(m?.beforeToEventPct)}</td>
+                          <td className="py-2 pr-4">{fmt(m?.eventToAfterPct)}</td>
+                          <td className="py-2">{fmt(m?.beforeToAfterPct)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          {analysis && (
+            <section className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 shadow-sm space-y-3">
+              <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                LLM Analysis
+              </h3>
+              {analysis.eventSummary && <p className="text-sm">{analysis.eventSummary}</p>}
+              {analysis.crossAssetNarrative && (
+                <p className="text-sm text-gray-600 dark:text-gray-300">{analysis.crossAssetNarrative}</p>
+              )}
+              {Array.isArray(analysis.assetExplanations) && analysis.assetExplanations.length > 0 && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {analysis.assetExplanations.map((item) => (
+                    <div
+                      key={item.assetClass}
+                      className="rounded-xl border border-gray-200 dark:border-gray-800 p-3"
+                    >
+                      <p className="font-semibold text-sm">{item.assetClass}</p>
+                      <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">{item.whyItMoved}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{item.evidence}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
 
           <SustainabilityCallout event={selectedEvent} />
 
           <footer className="text-center text-xs text-gray-400 dark:text-gray-600 pb-4">
-            Hindsight 20/20 · Built for BlackRock Hackathon · Impact chart data is illustrative;
-            timeline uses live data via Twelve Data API
+            Hindsight 20/20 · Built for BlackRock Hackathon · Impact chart uses live +/-3 month
+            metrics and LLM analysis
           </footer>
 
         </main>

@@ -14,7 +14,7 @@ const CustomTooltip = ({ active, payload, label, dark }) => {
       {payload.map((entry) =>
         entry.value != null ? (
           <p key={entry.name} style={{ color: entry.color }}>
-            {entry.name}: <span className="font-bold">{entry.value}</span>
+            {entry.name}: <span className="font-bold">{Number(entry.value).toFixed(1)}</span>
           </p>
         ) : null
       )}

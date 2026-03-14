@@ -40,14 +40,6 @@ export const EVENTS = [
       "Energy commodity prices surged. European clean energy indices also rose on energy security concerns.",
   },
   {
-    id: "fed2022",
-    name: "Fed Rate Hikes",
-    date: "2022-03-16",
-    category: "monetary policy",
-    description:
-      "Aggressive rate hikes hit bonds and growth stocks hard. Crypto entered a prolonged bear market.",
-  },
-  {
     id: "paris",
     name: "Paris Agreement",
     date: "2015-12-12",

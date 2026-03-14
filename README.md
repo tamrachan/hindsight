@@ -5,17 +5,17 @@ This is Team Hindsight's project for the BlackRock x WICS x FinTech hackathon on
 
 ## Project Overview
 
-Hindsight 20/20 is an interactive financial education dashboard that visualise how different asset classes—such as stocks, bonds, commodities, and cryptocurrencies—react to major global events. Users can explore a timeline of significant news, including wars, financial crises, terrorist attacks, and interest rate changes, and see how markets responded from 1999 to today. 
+Hindsight 20/20 is an interactive financial education dashboard that visualise how different asset classes - such as stocks, bonds, commodities, and cryptocurrencies - react to major global events. Users can explore a timeline of significant news, including wars, financial crises, terrorist attacks, and interest rate changes, and see how markets responded from 1999 to today. 
 
 By selecting specific events, students can visualise and compare the performance of different asset classes, helping them understand how real-world events influence financial markets, investor behavior, and risk across the global economy.
 
 ### Key Features
-- **Live normalised index** — all asset classes indexed to 100 at the first event baseline, fetched from Twelve Data
-- **Event deep-dives** — 3-month before/after impact chart with reference line at event date
-- **Per-asset stat cards** — % change over the event window
-- **Supporting articles** — curated reading per event fetched from /api/articles
-- **Sustainability lens** — highlights ESG-relevant events with dedicated callout
-- **Dark mode** — full light/dark theme toggle
+- **Live normalised index** - all asset classes indexed to 100 at the first event baseline, fetched from Twelve Data
+- **Event deep-dives** - 3-month before/after impact chart with reference line at event date
+- **Per-asset stat cards** - % change over the event window
+- **Supporting articles** - curated reading per event fetched from /api/articles
+- **Sustainability lens** - highlights ESG-relevant events with dedicated callout
+- **Dark mode** - full light/dark theme toggle
 
 ## Tech Stack
 | Layer       | Technology                            |

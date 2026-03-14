@@ -59,19 +59,51 @@ function normalizeAnalysis(raw) {
   };
 }
 
-function buildImpactChartData(metricsPayload) {
-  const assets = Array.isArray(metricsPayload?.assets) ? metricsPayload.assets : [];
-  const points = [
-    { month: "-3m" },
-    { month: "Event" },
-    { month: "+3m" },
-  ];
+function addMonths(isoDate, months) {
+  const d = new Date(`${isoDate}T00:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() + months);
+  return d.toISOString().slice(0, 10);
+}
 
+function monthKey(isoDate) {
+  return isoDate.slice(0, 7);
+}
+
+function formatMonthLabel(isoDate) {
+  return new Date(`${isoDate}T00:00:00Z`).toLocaleDateString("en-GB", {
+    month: "short",
+    year: "2-digit",
+  });
+}
+
+function buildImpactWindowChartData(summaryPayload, eventDate, months = 3) {
+  const timestamps = Array.isArray(summaryPayload?.timestamps) ? summaryPayload.timestamps : [];
+  const assets = Array.isArray(summaryPayload?.assets) ? summaryPayload.assets : [];
+  const tsByMonth = new Map(timestamps.map((ts, idx) => [monthKey(ts), idx]));
+  const monthOffsets = Array.from({ length: months * 2 + 1 }, (_, i) => i - months);
+
+  const points = monthOffsets.map((offset) => {
+    const targetDate = addMonths(eventDate, offset);
+    const key = monthKey(targetDate);
+    const idx = tsByMonth.has(key) ? tsByMonth.get(key) : -1;
+    return {
+      month: formatMonthLabel(targetDate),
+      timestampIndex: idx,
+    };
+  });
+
+  const baselineIdx = points[0]?.timestampIndex ?? -1;
   for (const asset of assets) {
-    const key = asset.assetClass;
-    points[0][key] = asset.beforePoint?.value ?? null;
-    points[1][key] = asset.eventPoint?.value ?? null;
-    points[2][key] = asset.afterPoint?.value ?? null;
+    const baseline =
+      baselineIdx >= 0 && Array.isArray(asset.values) ? asset.values[baselineIdx] : null;
+    for (const point of points) {
+      if (point.timestampIndex < 0 || baseline == null || !Array.isArray(asset.values)) {
+        point[asset.assetClass] = null;
+      } else {
+        const raw = asset.values[point.timestampIndex];
+        point[asset.assetClass] = raw == null ? null : Number(((raw / baseline) * 100).toFixed(2));
+      }
+    }
   }
 
   return points;
@@ -112,20 +144,25 @@ export default function App() {
       setImpactError(null);
 
       try {
-        const [metricsRes, analysisRes] = await Promise.all([
+        const [metricsRes, analysisRes, summaryRes] = await Promise.all([
           fetch(API_ENDPOINTS.threeMonthMetrics(selectedEvent.id)),
           fetch(API_ENDPOINTS.eventAnalysis(selectedEvent.id)),
+          fetch(API_ENDPOINTS.normalised),
         ]);
 
         if (!metricsRes.ok) {
           throw new Error(`Failed to load event metrics (${metricsRes.status})`);
         }
+        if (!summaryRes.ok) {
+          throw new Error(`Failed to load impact chart data (${summaryRes.status})`);
+        }
 
         const metricsJson = await metricsRes.json();
         const analysisJson = analysisRes.ok ? await analysisRes.json() : null;
+        const summaryJson = await summaryRes.json();
 
         if (isCancelled) return;
-        setImpactData(buildImpactChartData(metricsJson));
+        setImpactData(buildImpactWindowChartData(summaryJson, selectedEvent.date, 3));
         setImpactMetrics(Array.isArray(metricsJson.assets) ? metricsJson.assets : []);
         setAnalysis(normalizeAnalysis(analysisJson?.analysis));
         setAnalysisArticles(Array.isArray(analysisJson?.supportingArticles) ? analysisJson.supportingArticles : []);
@@ -189,7 +226,7 @@ export default function App() {
             dark={dark}
             selectedEvent={selectedEvent}
             chartData={impactData}
-            eventMonthIndex={1}
+            eventMonthIndex={3}
             activeAssets={activeAssets}
           />
 

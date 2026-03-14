@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   LineChart,
   Line,
@@ -17,7 +16,9 @@ import {
   ASSET_COLORS,
   CATEGORY_BADGE_CLASSES,
 } from "./constants";
-import { FiSun, FiMoon } from "react-icons/fi";
+import { useState, useRef } from "react";
+import { FiSun, FiMoon, FiArrowDown } from "react-icons/fi";
+
 
 // ---------------------------------------------------------------------------
 // Per-event impact chart data (indexed to 100 at pre-event baseline)
@@ -120,6 +121,9 @@ const CustomTooltip = ({ active, payload, label, dark }) => {
 // App
 // ---------------------------------------------------------------------------
 export default function App() {
+  const appRef = useRef(null);
+  const scrollToApp = () => appRef.current?.scrollIntoView({ behavior: "smooth" });
+
   const [dark, setDark] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(
     EVENTS.find((e) => e.id === "covid")

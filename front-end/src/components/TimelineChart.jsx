@@ -170,7 +170,7 @@ export default function TimelineChart({ dark, selectedEventId, onSelectEvent }) 
       setError(null);
       try {
         const [summaryRes, eventsRes] = await Promise.all([
-          fetch(`${API_ENDPOINTS.monthlySummary}?commonStart=true`),
+          fetch(`${API_ENDPOINTS.normalised}?commonStart=true`),
           fetch(API_ENDPOINTS.events),
         ]);
 

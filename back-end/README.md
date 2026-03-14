@@ -4,6 +4,8 @@
 
 ```env
 TWELVE_DATA_API_KEY=your_twelve_data_key
+GEMINI_API_KEY=your_gemini_api_key
+GEMINI_MODEL=gemini-1.5-flash
 PORT=5000
 ```
 
@@ -39,6 +41,11 @@ node server.js
     - `% change` from `months` before to `months` after
 - `GET /api/event-metrics/:eventId?months=3`
   - Same metrics for a single event, from monthly normalized summary data.
+- `GET /api/event-analysis/:eventId?months=3`
+  - Uses Gemini to generate grounded explanation text from computed event metrics.
+  - Response includes both:
+    - `metrics` (the numeric evidence)
+    - `analysis` (LLM-generated educational narrative)
 - `GET /api/impact/:eventId?windowDays=30`
   - Example: `/api/impact/covid?windowDays=45`
   - Fetches daily prices from Twelve Data in a symmetric window around the event.

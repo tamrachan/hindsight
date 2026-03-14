@@ -11,10 +11,25 @@ app.use(express.json())
 
 const ASSET_PROXIES = [
   { assetClass: "Stocks", symbol: "SPY", reason: "Most common S&P 500 proxy" },
-  { assetClass: "Bonds", symbol: "TLT", reason: "Long-duration US Treasury bonds" },
-  { assetClass: "Commodities", symbol: "DBC", reason: "Commodity index ETF" },
+  {
+    assetClass: "Bonds",
+    symbol: "IEF",
+    symbolCandidates: ["IEF", "TLT"],
+    reason: "US Treasury bond ETF proxy (available on current plan)",
+  },
+  {
+    assetClass: "Commodities",
+    symbol: "DBC",
+    symbolCandidates: ["DBC"],
+    reason: "Commodity index ETF proxy (available on current plan)",
+  },
   { assetClass: "Crypto", symbol: "BTC/USD", reason: "Dominant crypto asset" },
-  { assetClass: "Real Estate", symbol: "VNQ", reason: "REIT index ETF" },
+  {
+    assetClass: "Real Estate",
+    symbol: "VNQ",
+    symbolCandidates: ["VNQ"],
+    reason: "REIT index ETF proxy (available on current plan)",
+  },
 ]
 
 const MAJOR_EVENTS = [
@@ -82,6 +97,27 @@ function pctChange(fromPrice, toPrice) {
   return ((toPrice - fromPrice) / fromPrice) * 100
 }
 
+function getMonthlyRangeFromFirstEvent() {
+  const sortedEvents = [...MAJOR_EVENTS].sort(
+    (a, b) => new Date(`${a.date}T00:00:00Z`) - new Date(`${b.date}T00:00:00Z`),
+  )
+  const firstEvent = sortedEvents[0]
+  const startDate = addDays(firstEvent.date, -365)
+  const endDate = toIsoDate(new Date())
+  return { firstEvent, startDate, endDate }
+}
+
+function normalizeToBase100(series) {
+  if (!series.length) return { baseClose: null, points: [] }
+  const baseClose = series[0].close
+  const points = series.map((point) => ({
+    datetime: point.datetime,
+    close: point.close,
+    normalized: (point.close / baseClose) * 100,
+  }))
+  return { baseClose, points }
+}
+
 async function fetchAssetSeries(symbol, startDate, endDate, interval = "1day") {
   const apiKey = process.env.TWELVE_DATA_API_KEY
   if (!apiKey) {
@@ -115,6 +151,28 @@ async function fetchAssetSeries(symbol, startDate, endDate, interval = "1day") {
     .filter((row) => Number.isFinite(row.close))
 }
 
+async function fetchSeriesForAsset(asset, startDate, endDate, interval = "1day") {
+  const candidates =
+    Array.isArray(asset.symbolCandidates) && asset.symbolCandidates.length
+      ? asset.symbolCandidates
+      : [asset.symbol]
+  let lastError = null
+
+  for (const candidate of candidates) {
+    try {
+      const series = await fetchAssetSeries(candidate, startDate, endDate, interval)
+      if (series.length > 0) {
+        return { symbolUsed: candidate, series }
+      }
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  const reason = lastError?.message || "No valid data returned for any symbol candidate"
+  throw new Error(`No data for ${asset.assetClass}. Tried: ${candidates.join(", ")}. ${reason}`)
+}
+
 app.get("/api/hello", (req, res) => {
   res.json({ message: "Hello from backend!" })
 })
@@ -134,6 +192,7 @@ app.get("/", (req, res) => {
         <ul>
           <li><a href="/api/events">/api/events</a></li>
           <li><a href="/api/asset-classes/monthly">/api/asset-classes/monthly</a></li>
+          <li><a href="/api/asset-classes/monthly/summary">/api/asset-classes/monthly/summary</a></li>
           <li><a href="/api/impact/covid?windowDays=30">/api/impact/covid?windowDays=30</a></li>
           <li><a href="/api/hello">/api/hello</a></li>
         </ul>
@@ -151,19 +210,20 @@ app.get("/api/events", (req, res) => {
 
 app.get("/api/asset-classes/monthly", async (req, res) => {
   try {
-    const sortedEvents = [...MAJOR_EVENTS].sort(
-      (a, b) => new Date(`${a.date}T00:00:00Z`) - new Date(`${b.date}T00:00:00Z`),
-    )
-    const firstEvent = sortedEvents[0]
-    const startDate = addDays(firstEvent.date, -365)
-    const endDate = toIsoDate(new Date())
+    const { firstEvent, startDate, endDate } = getMonthlyRangeFromFirstEvent()
 
     const assets = await Promise.all(
       ASSET_PROXIES.map(async (asset) => {
         try {
-          const series = await fetchAssetSeries(asset.symbol, startDate, endDate, "1month")
+          const { symbolUsed, series } = await fetchSeriesForAsset(
+            asset,
+            startDate,
+            endDate,
+            "1month",
+          )
           return {
             ...asset,
+            symbolUsed,
             interval: "1month",
             startDate,
             endDate,
@@ -196,6 +256,99 @@ app.get("/api/asset-classes/monthly", async (req, res) => {
   }
 })
 
+app.get("/api/asset-classes/monthly/summary", async (req, res) => {
+  try {
+    const commonStartEnabled = String(req.query.commonStart || "").toLowerCase() === "true"
+    const { firstEvent, startDate, endDate } = getMonthlyRangeFromFirstEvent()
+
+    const rawAssets = await Promise.all(
+      ASSET_PROXIES.map(async (asset) => {
+        try {
+          const { symbolUsed, series } = await fetchSeriesForAsset(
+            asset,
+            startDate,
+            endDate,
+            "1month",
+          )
+          return { ...asset, symbolUsed, series }
+        } catch (error) {
+          return { ...asset, series: [], error: error.message }
+        }
+      }),
+    )
+
+    const timestampSet = new Set()
+    rawAssets.forEach((asset) => {
+      asset.series.forEach((point) => timestampSet.add(point.datetime))
+    })
+    const timestamps = [...timestampSet].sort(
+      (a, b) => new Date(`${a}T00:00:00Z`) - new Date(`${b}T00:00:00Z`),
+    )
+
+    const assets = rawAssets.map((asset) => {
+      if (asset.error) {
+        return {
+          assetClass: asset.assetClass,
+          symbol: asset.symbol,
+          symbolUsed: null,
+          reason: asset.reason,
+          error: asset.error,
+          baseClose: null,
+          latestClose: null,
+          totalReturnPct: null,
+          values: [],
+        }
+      }
+
+      const { baseClose, points } = normalizeToBase100(asset.series)
+      const byDate = new Map(points.map((point) => [point.datetime, point]))
+      const values = timestamps.map((date) => {
+        const point = byDate.get(date)
+        if (!point) return null
+        return Number(point.normalized.toFixed(4))
+      })
+
+      const latestClose = asset.series[asset.series.length - 1]?.close ?? null
+      const totalReturnPct = pctChange(baseClose, latestClose)
+
+      return {
+        assetClass: asset.assetClass,
+        symbol: asset.symbol,
+        symbolUsed: asset.symbolUsed,
+        reason: asset.reason,
+        baseClose,
+        latestClose,
+        totalReturnPct: totalReturnPct === null ? null : Number(totalReturnPct.toFixed(4)),
+        values,
+      }
+    })
+
+    const trimmedStartIndex = commonStartEnabled
+      ? timestamps.findIndex((_, idx) => assets.every((asset) => asset.values[idx] !== null))
+      : 0
+
+    const finalStartIndex = trimmedStartIndex >= 0 ? trimmedStartIndex : 0
+    const trimmedTimestamps = timestamps.slice(finalStartIndex)
+    const trimmedAssets = assets.map((asset) => ({
+      ...asset,
+      values: asset.values.slice(finalStartIndex),
+    }))
+
+    return res.json({
+      firstEvent,
+      interval: "1month",
+      startDate,
+      endDate,
+      commonStartEnabled,
+      commonStartDate: commonStartEnabled ? trimmedTimestamps[0] || null : null,
+      timestamps: trimmedTimestamps,
+      assets: trimmedAssets,
+    })
+  } catch (error) {
+    return res.status(500).json({ error: error.message })
+  }
+})
+
 app.get("/api/impact/:eventId", async (req, res) => {
   try {
     const event = MAJOR_EVENTS.find((item) => item.id === req.params.eventId)
@@ -213,12 +366,13 @@ app.get("/api/impact/:eventId", async (req, res) => {
     const assets = await Promise.all(
       ASSET_PROXIES.map(async (asset) => {
         try {
-          const series = await fetchAssetSeries(asset.symbol, startDate, endDate)
+          const { symbolUsed, series } = await fetchSeriesForAsset(asset, startDate, endDate)
           const preEvent = getNearestPoint(series, event.date, "before")
           const postEvent = getNearestPoint(series, event.date, "after")
 
           return {
             ...asset,
+            symbolUsed,
             startDate,
             endDate,
             preEvent,

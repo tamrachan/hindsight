@@ -5,6 +5,7 @@ export const API_ENDPOINTS = {
   normalised:     `${API_BASE_URL}/api/charts/normalized-index`,
   monthlyAssets:  `${API_BASE_URL}/api/asset-classes/monthly`,
   monthlySummary: `${API_BASE_URL}/api/asset-classes/monthly/summary`,
+  articles:       `${API_BASE_URL}/api/articles`,
 
   threeMonthMetrics: (eventId) =>
     `${API_BASE_URL}/api/event-metrics/${eventId}?months=3`,

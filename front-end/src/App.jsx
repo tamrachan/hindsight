@@ -12,6 +12,53 @@ import ImpactChart           from "./components/ImpactChart";
 import StatCards             from "./components/StatCards";
 import SustainabilityCallout from "./components/SustainabilityCallout";
 
+function parseJsonSafely(text) {
+  if (typeof text !== "string") return null;
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  const noFence = trimmed
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/\s*```$/, "");
+
+  try {
+    return JSON.parse(noFence);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeAnalysis(raw) {
+  if (!raw) return null;
+
+  let parsed = raw;
+  if (typeof raw === "string") {
+    parsed = parseJsonSafely(raw) ?? { eventSummary: raw };
+  } else if (typeof raw?.eventSummary === "string") {
+    const nested = parseJsonSafely(raw.eventSummary);
+    if (nested && typeof nested === "object") parsed = nested;
+  }
+
+  const assetExplanations = Array.isArray(parsed?.assetExplanations)
+    ? parsed.assetExplanations.filter((x) => x?.assetClass && (x?.whyItMoved || x?.evidence))
+    : [];
+  const teachingNotes = Array.isArray(parsed?.teachingNotes)
+    ? parsed.teachingNotes.filter(Boolean)
+    : [];
+  const globalCitations = Array.isArray(parsed?.globalCitations)
+    ? [...new Set(parsed.globalCitations.filter(Boolean))]
+    : [];
+
+  return {
+    eventSummary: parsed?.eventSummary || "",
+    crossAssetNarrative: parsed?.crossAssetNarrative || "",
+    assetExplanations,
+    teachingNotes,
+    globalCitations,
+  };
+}
+
 function buildImpactChartData(metricsPayload) {
   const assets = Array.isArray(metricsPayload?.assets) ? metricsPayload.assets : [];
   const points = [
@@ -37,6 +84,7 @@ export default function App() {
   const [impactData, setImpactData]       = useState([]);
   const [impactMetrics, setImpactMetrics] = useState([]);
   const [analysis, setAnalysis]           = useState(null);
+  const [analysisArticles, setAnalysisArticles] = useState([]);
   const [impactLoading, setImpactLoading] = useState(false);
   const [impactError, setImpactError]     = useState(null);
   const appRef = useRef(null);
@@ -79,12 +127,14 @@ export default function App() {
         if (isCancelled) return;
         setImpactData(buildImpactChartData(metricsJson));
         setImpactMetrics(Array.isArray(metricsJson.assets) ? metricsJson.assets : []);
-        setAnalysis(analysisJson?.analysis ?? null);
+        setAnalysis(normalizeAnalysis(analysisJson?.analysis));
+        setAnalysisArticles(Array.isArray(analysisJson?.supportingArticles) ? analysisJson.supportingArticles : []);
       } catch (error) {
         if (isCancelled) return;
         setImpactData([]);
         setImpactMetrics([]);
         setAnalysis(null);
+        setAnalysisArticles([]);
         setImpactError(error.message);
       } finally {
         if (!isCancelled) setImpactLoading(false);
@@ -214,8 +264,58 @@ export default function App() {
                       <p className="font-semibold text-sm">{item.assetClass}</p>
                       <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">{item.whyItMoved}</p>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{item.evidence}</p>
+                      {Array.isArray(item.citations) && item.citations.length > 0 && (
+                        <p className="text-[11px] text-gray-400 mt-1">
+                          Sources: {item.citations.join(", ")}
+                        </p>
+                      )}
                     </div>
                   ))}
+                </div>
+              )}
+              {Array.isArray(analysis.teachingNotes) && analysis.teachingNotes.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1">
+                    Teaching Notes
+                  </p>
+                  <ul className="text-xs text-gray-600 dark:text-gray-300 space-y-1">
+                    {analysis.teachingNotes.map((note, idx) => (
+                      <li key={`${note}-${idx}`}>- {note}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {Array.isArray(analysis.globalCitations) && analysis.globalCitations.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1">
+                    Supporting Sources
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {analysis.globalCitations.map((citationId) => {
+                      const article = analysisArticles.find((a) => a.id === citationId);
+                      if (!article) {
+                        return (
+                          <span
+                            key={citationId}
+                            className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300"
+                          >
+                            {citationId}
+                          </span>
+                        );
+                      }
+                      return (
+                        <a
+                          key={citationId}
+                          href={article.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs px-2 py-1 rounded bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 hover:underline"
+                        >
+                          {article.source}: {article.title}
+                        </a>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </section>

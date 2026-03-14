@@ -216,6 +216,88 @@ function buildLessonQuiz(event, metrics) {
   ]
 }
 
+function buildAnalysisPrompt(metricsPayload) {
+  return [
+    "You are a financial education assistant for students.",
+    "Use only the provided data. Do not invent facts, dates, or percentages.",
+    "Write concise, plain-English explanations.",
+    "Return strict JSON with this schema:",
+    "{",
+    '  "eventSummary": "string",',
+    '  "crossAssetNarrative": "string",',
+    '  "assetExplanations": [',
+    "    {",
+    '      "assetClass": "string",',
+    '      "whyItMoved": "string",',
+    '      "evidence": "string",',
+    '      "confidence": "low|medium|high"',
+    "    }",
+    "  ],",
+    '  "teachingNotes": ["string"]',
+    "}",
+    "Data:",
+    JSON.stringify(metricsPayload),
+  ].join("\n")
+}
+
+async function generateLLMAnalysis(metricsPayload) {
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey) {
+    throw new Error("Missing GEMINI_API_KEY in environment")
+  }
+
+  const model = process.env.GEMINI_MODEL || "gemini-1.5-flash"
+  const url = new URL(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+  )
+  url.searchParams.set("key", apiKey)
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      generationConfig: {
+        temperature: 0.2,
+      },
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: buildAnalysisPrompt(metricsPayload) }],
+        },
+      ],
+    }),
+  })
+
+  if (!response.ok) {
+    const errorBody = await response.text()
+    throw new Error(`Gemini request failed (${response.status}): ${errorBody}`)
+  }
+
+  const json = await response.json()
+  const text =
+    json?.candidates?.[0]?.content?.parts
+      ?.map((part) => part?.text)
+      .filter(Boolean)
+      .join("\n")
+      .trim() || ""
+  if (!text) {
+    throw new Error("Gemini returned an empty analysis response")
+  }
+
+  try {
+    return JSON.parse(text)
+  } catch {
+    return {
+      eventSummary: text,
+      crossAssetNarrative: "",
+      assetExplanations: [],
+      teachingNotes: ["Model response was not valid JSON; returned as raw text in eventSummary."],
+    }
+  }
+}
+
 function getLastIndexOnOrBefore(timestamps, targetDate) {
   for (let i = timestamps.length - 1; i >= 0; i -= 1) {
     if (timestamps[i] <= targetDate) return i
@@ -459,6 +541,7 @@ app.get("/", (req, res) => {
           <li><a href="/api/asset-classes/monthly/summary">/api/asset-classes/monthly/summary</a></li>
           <li><a href="/api/charts/normalized-index">/api/charts/normalized-index</a></li>
           <li><a href="/api/event-metrics?months=3">/api/event-metrics?months=3</a></li>
+          <li><a href="/api/event-analysis/covid?months=3">/api/event-analysis/covid?months=3</a></li>
           <li><a href="/api/lesson-cards/covid">/api/lesson-cards/covid</a></li>
           <li><a href="/api/impact/covid?windowDays=30">/api/impact/covid?windowDays=30</a></li>
           <li><a href="/api/hello">/api/hello</a></li>
@@ -574,6 +657,29 @@ app.get("/api/event-metrics/:eventId", async (req, res) => {
     const summary = await buildMonthlySummaryPayload()
     const payload = buildEventMetricsForEvent(event, summary, months)
     return res.json(payload)
+  } catch (error) {
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+app.get("/api/event-analysis/:eventId", async (req, res) => {
+  try {
+    const event = MAJOR_EVENTS.find((item) => item.id === req.params.eventId)
+    if (!event) {
+      return res.status(404).json({ error: "Event not found" })
+    }
+
+    const months = Number.parseInt(req.query.months, 10) || 3
+    const summary = await buildMonthlySummaryPayload()
+    const metricsPayload = buildEventMetricsForEvent(event, summary, months)
+    const analysis = await generateLLMAnalysis(metricsPayload)
+
+    return res.json({
+      source: "gemini",
+      model: process.env.GEMINI_MODEL || "gemini-1.5-flash",
+      metrics: metricsPayload,
+      analysis,
+    })
   } catch (error) {
     return res.status(500).json({ error: error.message })
   }

@@ -118,6 +118,104 @@ function normalizeToBase100(series) {
   return { baseClose, points }
 }
 
+function dateDiffDays(fromIsoDate, toIsoDate) {
+  const from = new Date(`${fromIsoDate}T00:00:00Z`).getTime()
+  const to = new Date(`${toIsoDate}T00:00:00Z`).getTime()
+  return Math.round((to - from) / (1000 * 60 * 60 * 24))
+}
+
+function roundOrNull(value, decimals = 2) {
+  if (value === null || value === undefined || Number.isNaN(value)) return null
+  return Number(value.toFixed(decimals))
+}
+
+function getReturnAtDays(series, eventDate, days, baselineClose) {
+  const targetDate = addDays(eventDate, days)
+  const point = getNearestPoint(series, targetDate, "after")
+  return {
+    targetDate,
+    pointDate: point?.datetime || null,
+    returnPct: roundOrNull(pctChange(baselineClose, point?.close)),
+  }
+}
+
+function calculatePostEventDrawdown(series, eventDate) {
+  const post = series.filter((row) => row.datetime >= eventDate)
+  if (!post.length) return null
+  const peak = post[0].close
+  let trough = post[0]
+
+  for (const point of post) {
+    if (point.close < trough.close) trough = point
+  }
+
+  return {
+    troughDate: trough.datetime,
+    maxDrawdownPct: roundOrNull(pctChange(peak, trough.close)),
+  }
+}
+
+function calculateRecoveryDays(series, eventDate, baselineClose) {
+  const post = series.filter((row) => row.datetime >= eventDate)
+  const recovered = post.find((row) => row.close >= baselineClose)
+  if (!recovered) return null
+  return dateDiffDays(eventDate, recovered.datetime)
+}
+
+function buildLessonTakeaways(event, metrics) {
+  const valid30 = metrics
+    .filter((m) => m.returns.d30.returnPct !== null)
+    .sort((a, b) => b.returns.d30.returnPct - a.returns.d30.returnPct)
+
+  if (!valid30.length) {
+    return [`No complete 30-day data was available for ${event.title}.`]
+  }
+
+  const best = valid30[0]
+  const worst = valid30[valid30.length - 1]
+  const safeHaven = metrics.find((m) => m.assetClass === "Bonds")
+
+  const takeaways = [
+    `${best.assetClass} led after 30 days (${best.returns.d30.returnPct}%).`,
+    `${worst.assetClass} lagged after 30 days (${worst.returns.d30.returnPct}%).`,
+  ]
+
+  if (safeHaven?.returns?.d30?.returnPct !== null) {
+    takeaways.push(
+      `Bonds moved ${safeHaven.returns.d30.returnPct}% over 30 days, useful for safe-haven discussion.`,
+    )
+  }
+
+  return takeaways
+}
+
+function buildLessonQuiz(event, metrics) {
+  const valid30 = metrics
+    .filter((m) => m.returns.d30.returnPct !== null)
+    .sort((a, b) => b.returns.d30.returnPct - a.returns.d30.returnPct)
+
+  const winner = valid30[0]?.assetClass || "N/A"
+  const loser = valid30[valid30.length - 1]?.assetClass || "N/A"
+  const optionPool = [...new Set(metrics.map((m) => m.assetClass))]
+
+  return [
+    {
+      id: `${event.id}-q1`,
+      question: `Which asset class performed best 30 days after ${event.title}?`,
+      options: optionPool,
+      correctAnswer: winner,
+      explanation: `${winner} had the highest 30-day return in this dataset.`,
+    },
+    {
+      id: `${event.id}-q2`,
+      question: `Which asset class performed worst 30 days after ${event.title}?`,
+      options: optionPool,
+      correctAnswer: loser,
+      explanation: `${loser} had the lowest 30-day return in this dataset.`,
+    },
+  ]
+}
+
 async function fetchAssetSeries(symbol, startDate, endDate, interval = "1day") {
   const apiKey = process.env.TWELVE_DATA_API_KEY
   if (!apiKey) {
@@ -173,6 +271,91 @@ async function fetchSeriesForAsset(asset, startDate, endDate, interval = "1day")
   throw new Error(`No data for ${asset.assetClass}. Tried: ${candidates.join(", ")}. ${reason}`)
 }
 
+function buildEventMarkers(timestamps) {
+  return MAJOR_EVENTS.map((event) => {
+    const idx = timestamps.findIndex((ts) => ts >= event.date)
+    return {
+      id: event.id,
+      title: event.title,
+      date: event.date,
+      category: event.category,
+      timestampIndex: idx >= 0 ? idx : null,
+      timestamp: idx >= 0 ? timestamps[idx] : null,
+    }
+  })
+}
+
+async function buildMonthlySummaryPayload() {
+  const { firstEvent, startDate, endDate } = getMonthlyRangeFromFirstEvent()
+
+  const rawAssets = await Promise.all(
+    ASSET_PROXIES.map(async (asset) => {
+      try {
+        const { symbolUsed, series } = await fetchSeriesForAsset(asset, startDate, endDate, "1month")
+        return { ...asset, symbolUsed, series }
+      } catch (error) {
+        return { ...asset, series: [], error: error.message }
+      }
+    }),
+  )
+
+  const timestampSet = new Set()
+  rawAssets.forEach((asset) => {
+    asset.series.forEach((point) => timestampSet.add(point.datetime))
+  })
+
+  const timestamps = [...timestampSet].sort(
+    (a, b) => new Date(`${a}T00:00:00Z`) - new Date(`${b}T00:00:00Z`),
+  )
+
+  const assets = rawAssets.map((asset) => {
+    if (asset.error) {
+      return {
+        assetClass: asset.assetClass,
+        symbol: asset.symbol,
+        symbolUsed: null,
+        reason: asset.reason,
+        error: asset.error,
+        baseClose: null,
+        latestClose: null,
+        totalReturnPct: null,
+        values: [],
+      }
+    }
+
+    const { baseClose, points } = normalizeToBase100(asset.series)
+    const byDate = new Map(points.map((point) => [point.datetime, point]))
+    const values = timestamps.map((date) => {
+      const point = byDate.get(date)
+      if (!point) return null
+      return Number(point.normalized.toFixed(4))
+    })
+
+    const latestClose = asset.series[asset.series.length - 1]?.close ?? null
+    const totalReturnPct = pctChange(baseClose, latestClose)
+
+    return {
+      assetClass: asset.assetClass,
+      symbol: asset.symbol,
+      symbolUsed: asset.symbolUsed,
+      reason: asset.reason,
+      baseClose,
+      latestClose,
+      totalReturnPct: totalReturnPct === null ? null : Number(totalReturnPct.toFixed(4)),
+      values,
+    }
+  })
+
+  return {
+    firstEvent,
+    interval: "1month",
+    startDate,
+    endDate,
+    timestamps,
+    assets,
+  }
+}
+
 app.get("/api/hello", (req, res) => {
   res.json({ message: "Hello from backend!" })
 })
@@ -193,6 +376,8 @@ app.get("/", (req, res) => {
           <li><a href="/api/events">/api/events</a></li>
           <li><a href="/api/asset-classes/monthly">/api/asset-classes/monthly</a></li>
           <li><a href="/api/asset-classes/monthly/summary">/api/asset-classes/monthly/summary</a></li>
+          <li><a href="/api/charts/normalized-index">/api/charts/normalized-index</a></li>
+          <li><a href="/api/lesson-cards/covid">/api/lesson-cards/covid</a></li>
           <li><a href="/api/impact/covid?windowDays=30">/api/impact/covid?windowDays=30</a></li>
           <li><a href="/api/hello">/api/hello</a></li>
         </ul>
@@ -258,91 +443,107 @@ app.get("/api/asset-classes/monthly", async (req, res) => {
 
 app.get("/api/asset-classes/monthly/summary", async (req, res) => {
   try {
-    const commonStartEnabled = String(req.query.commonStart || "").toLowerCase() === "true"
-    const { firstEvent, startDate, endDate } = getMonthlyRangeFromFirstEvent()
+    const payload = await buildMonthlySummaryPayload()
+    return res.json(payload)
+  } catch (error) {
+    return res.status(500).json({ error: error.message })
+  }
+})
 
-    const rawAssets = await Promise.all(
+app.get("/api/charts/normalized-index", async (req, res) => {
+  try {
+    const summary = await buildMonthlySummaryPayload()
+    const eventMarkers = buildEventMarkers(summary.timestamps)
+
+    return res.json({
+      chartType: "normalized-index",
+      yAxisBase: 100,
+      logScaleSupported: true,
+      ...summary,
+      eventMarkers,
+    })
+  } catch (error) {
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+app.get("/api/lesson-cards/:eventId", async (req, res) => {
+  try {
+    const event = MAJOR_EVENTS.find((item) => item.id === req.params.eventId)
+    if (!event) {
+      return res.status(404).json({ error: "Event not found" })
+    }
+
+    const windowDays = Math.max(
+      30,
+      Math.min(365, Number.parseInt(req.query.windowDays, 10) || 180),
+    )
+    const startDate = addDays(event.date, -30)
+    const endDate = addDays(event.date, windowDays)
+
+    const assetMetrics = await Promise.all(
       ASSET_PROXIES.map(async (asset) => {
         try {
-          const { symbolUsed, series } = await fetchSeriesForAsset(
-            asset,
-            startDate,
-            endDate,
-            "1month",
-          )
-          return { ...asset, symbolUsed, series }
+          const { symbolUsed, series } = await fetchSeriesForAsset(asset, startDate, endDate)
+          const preEvent = getNearestPoint(series, event.date, "before")
+          if (!preEvent) {
+            return {
+              assetClass: asset.assetClass,
+              symbol: asset.symbol,
+              symbolUsed,
+              error: "No baseline data before event date",
+            }
+          }
+
+          const d7 = getReturnAtDays(series, event.date, 7, preEvent.close)
+          const d30 = getReturnAtDays(series, event.date, 30, preEvent.close)
+          const d90 = getReturnAtDays(series, event.date, 90, preEvent.close)
+          const drawdown = calculatePostEventDrawdown(series, event.date)
+          const recoveryDays = calculateRecoveryDays(series, event.date, preEvent.close)
+
+          return {
+            assetClass: asset.assetClass,
+            symbol: asset.symbol,
+            symbolUsed,
+            baseline: {
+              date: preEvent.datetime,
+              close: preEvent.close,
+            },
+            returns: { d7, d30, d90 },
+            maxDrawdownPct: drawdown?.maxDrawdownPct ?? null,
+            troughDate: drawdown?.troughDate ?? null,
+            recoveryDays,
+          }
         } catch (error) {
-          return { ...asset, series: [], error: error.message }
+          return {
+            assetClass: asset.assetClass,
+            symbol: asset.symbol,
+            error: error.message,
+          }
         }
       }),
     )
 
-    const timestampSet = new Set()
-    rawAssets.forEach((asset) => {
-      asset.series.forEach((point) => timestampSet.add(point.datetime))
-    })
-    const timestamps = [...timestampSet].sort(
-      (a, b) => new Date(`${a}T00:00:00Z`) - new Date(`${b}T00:00:00Z`),
-    )
-
-    const assets = rawAssets.map((asset) => {
-      if (asset.error) {
-        return {
-          assetClass: asset.assetClass,
-          symbol: asset.symbol,
-          symbolUsed: null,
-          reason: asset.reason,
-          error: asset.error,
-          baseClose: null,
-          latestClose: null,
-          totalReturnPct: null,
-          values: [],
-        }
-      }
-
-      const { baseClose, points } = normalizeToBase100(asset.series)
-      const byDate = new Map(points.map((point) => [point.datetime, point]))
-      const values = timestamps.map((date) => {
-        const point = byDate.get(date)
-        if (!point) return null
-        return Number(point.normalized.toFixed(4))
-      })
-
-      const latestClose = asset.series[asset.series.length - 1]?.close ?? null
-      const totalReturnPct = pctChange(baseClose, latestClose)
-
-      return {
-        assetClass: asset.assetClass,
-        symbol: asset.symbol,
-        symbolUsed: asset.symbolUsed,
-        reason: asset.reason,
-        baseClose,
-        latestClose,
-        totalReturnPct: totalReturnPct === null ? null : Number(totalReturnPct.toFixed(4)),
-        values,
-      }
-    })
-
-    const trimmedStartIndex = commonStartEnabled
-      ? timestamps.findIndex((_, idx) => assets.every((asset) => asset.values[idx] !== null))
-      : 0
-
-    const finalStartIndex = trimmedStartIndex >= 0 ? trimmedStartIndex : 0
-    const trimmedTimestamps = timestamps.slice(finalStartIndex)
-    const trimmedAssets = assets.map((asset) => ({
-      ...asset,
-      values: asset.values.slice(finalStartIndex),
-    }))
+    const validMetrics = assetMetrics.filter((metric) => !metric.error)
+    const lessonCard = {
+      id: `lesson-${event.id}`,
+      title: `${event.title}: Cross-Asset Impact`,
+      event,
+      teachingFocus: [
+        "Compare immediate vs medium-term market reactions",
+        "Identify relative winners and losers by asset class",
+        "Discuss drawdowns and recovery behavior",
+      ],
+      keyTakeaways: buildLessonTakeaways(event, validMetrics),
+      quizQuestions: buildLessonQuiz(event, validMetrics),
+      metrics: assetMetrics,
+    }
 
     return res.json({
-      firstEvent,
-      interval: "1month",
+      windowDays,
       startDate,
       endDate,
-      commonStartEnabled,
-      commonStartDate: commonStartEnabled ? trimmedTimestamps[0] || null : null,
-      timestamps: trimmedTimestamps,
-      assets: trimmedAssets,
+      lessonCard,
     })
   } catch (error) {
     return res.status(500).json({ error: error.message })

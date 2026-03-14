@@ -25,9 +25,19 @@ node server.js
 - `GET /api/asset-classes/monthly/summary`
   - Compact chart-ready payload.
   - Returns shared `timestamps` array and per-asset normalized `values` (base=100).
-  - Optional: `?commonStart=true` trims leading dates until all assets have values.
-  - Example: `/api/asset-classes/monthly/summary?commonStart=true`
+  - Example: `/api/asset-classes/monthly/summary`
+- `GET /api/charts/normalized-index`
+  - Normalized index chart payload for frontend charting.
+  - Includes `eventMarkers`, `yAxisBase=100`, and `logScaleSupported=true`.
+  - Example: `/api/charts/normalized-index`
 - `GET /api/impact/:eventId?windowDays=30`
   - Example: `/api/impact/covid?windowDays=45`
   - Fetches daily prices from Twelve Data in a symmetric window around the event.
   - Includes nearest `preEvent` and `postEvent` price points and computed `% return`.
+- `GET /api/lesson-cards/:eventId`
+  - Example: `/api/lesson-cards/covid?windowDays=180`
+  - Returns a teaching-ready lesson card:
+    - `teachingFocus` bullets
+    - per-asset event metrics (`d7`, `d30`, `d90`, drawdown, recovery)
+    - generated `keyTakeaways`
+    - generated `quizQuestions`
